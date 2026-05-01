@@ -2,17 +2,61 @@ import os
 import sys
 import torch
 import onnx
-from transformers import AutoModel, AutoModelForObjectDetection, AutoImageProcessor
 import torchvision.models as models
 
 MODEL_SOURCE = os.environ.get('MODEL_SOURCE', 'huggingface')
-MODEL_ID = os.environ.get('MODEL_ID', 'Roboflow/rf-detr-base')
+MODEL_ID = os.environ.get('MODEL_ID', 'resnet50')
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
+def convert_rfdetr():
+    """Convert RF-DETR model to ONNX using rfdetr package"""
+    from rfdetr import RFDETRBase, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
+    
+    print(f"Loading RF-DETR model: {MODEL_ID}")
+    
+    # Map model IDs to classes
+    rfdetr_models = {
+        'rfdetr-nano': RFDETRNano,
+        'rfdetr-small': RFDETRSmall,
+        'rfdetr-medium': RFDETRMedium,
+        'rfdetr-base': RFDETRBase,
+        'rfdetr-large': RFDETRLarge,
+        'Roboflow/rf-detr-base': RFDETRBase,
+        'Roboflow/rf-detr-nano': RFDETRNano,
+    }
+    
+    model_class = rfdetr_models.get(MODEL_ID.lower(), RFDETRBase)
+    print(f"Using model class: {model_class.__name__}")
+    
+    model = model_class()
+    model.model.eval()  # Get the underlying PyTorch model
+    
+    # RF-DETR uses 560x560 or 640x640
+    dummy_input = torch.randn(1, 3, 560, 560)
+    
+    ensure_dir('input')
+    torch.onnx.export(
+        model.model,
+        dummy_input,
+        'input/model.onnx',
+        input_names=['pixel_values'],
+        output_names=['logits', 'pred_boxes'],
+        dynamic_axes={
+            'pixel_values': {0: 'batch_size'},
+            'logits': {0: 'batch_size'},
+            'pred_boxes': {0: 'batch_size'}
+        },
+        opset_version=14
+    )
+    print("✅ RF-DETR exported to ONNX (560x560)")
+    return True
+
 def convert_huggingface():
     """Convert HuggingFace model to ONNX"""
+    from transformers import AutoModel, AutoModelForObjectDetection, AutoImageProcessor
+    
     print(f"Loading HuggingFace model: {MODEL_ID}")
     
     # Try object detection first
@@ -21,7 +65,6 @@ def convert_huggingface():
         processor = AutoImageProcessor.from_pretrained(MODEL_ID)
         model.eval()
         
-        # Get input size from processor
         size = getattr(processor, 'size', {'height': 560, 'width': 560})
         if isinstance(size, dict):
             h = size.get('height', 560)
@@ -55,8 +98,6 @@ def convert_huggingface():
     try:
         model = AutoModel.from_pretrained(MODEL_ID)
         model.eval()
-        
-        # Assume standard image input
         dummy_input = torch.randn(1, 3, 224, 224)
         
         ensure_dir('input')
@@ -117,7 +158,6 @@ def convert_from_url():
     with open(temp_path, 'wb') as f:
         f.write(r.content)
     
-    # Detect format and convert
     from convert.detect_format import detect_format, get_model_info
     fmt = detect_format(temp_path)
     info = get_model_info(fmt)
@@ -125,7 +165,6 @@ def convert_from_url():
     print(f"Detected format: {fmt} - {info['description']}")
     
     if fmt == 'onnx':
-        # Already ONNX, just move
         os.rename(temp_path, 'input/model.onnx')
         return True
     else:
@@ -135,7 +174,10 @@ def convert_from_url():
 def main():
     ensure_dir('input')
     
-    if MODEL_SOURCE == 'huggingface':
+    # Check if it's an RF-DETR model
+    if 'rf-detr' in MODEL_ID.lower() or 'rfdetr' in MODEL_ID.lower():
+        success = convert_rfdetr()
+    elif MODEL_SOURCE == 'huggingface':
         success = convert_huggingface()
     elif MODEL_SOURCE == 'torchvision':
         success = convert_torchvision()
