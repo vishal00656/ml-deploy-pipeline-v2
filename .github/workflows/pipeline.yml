@@ -1,0 +1,158 @@
+name: Universal ML Deploy Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_source:
+        description: 'How to provide the model?'
+        required: true
+        default: 'huggingface'
+        type: choice
+        options:
+          - huggingface
+          - torchvision
+          - url
+          
+      model_id:
+        description: 'Model ID (e.g., Roboflow/rf-detr-base, resnet50, or URL)'
+        required: true
+        default: 'Roboflow/rf-detr-base'
+        
+      hardware_target:
+        description: 'Target hardware'
+        required: true
+        default: 'cpu'
+        type: choice
+        options:
+          - cpu
+          - raspberry_pi
+          - nvidia_gpu
+          - mobile_android
+          - mobile_ios
+          - edge_tpu
+          
+      priority:
+        description: 'Optimization priority'
+        required: true
+        default: 'balanced'
+        type: choice
+        options:
+          - balanced
+          - speed
+          - size
+          - accuracy
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - name: Fetch and convert model
+        run: python convert/auto_convert.py
+        env:
+          MODEL_SOURCE: ${{ github.event.inputs.model_source }}
+          MODEL_ID: ${{ github.event.inputs.model_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onnx-model
+          path: input/model.onnx
+
+  analyze:
+    runs-on: ubuntu-latest
+    needs: convert
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: onnx-model
+          path: input/
+      - name: Analyze model architecture
+        run: python convert/analyze_model.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-analysis
+          path: output/analysis.json
+
+  optimize:
+    runs-on: ubuntu-latest
+    needs: analyze
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: onnx-model
+          path: input/
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-analysis
+          path: output/
+      - name: Smart optimize for target hardware
+        run: python optimize/smart_optimizer.py
+        env:
+          HARDWARE_TARGET: ${{ github.event.inputs.hardware_target }}
+          PRIORITY: ${{ github.event.inputs.priority }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: optimized-models
+          path: output/
+
+  validate:
+    runs-on: ubuntu-latest
+    needs: optimize
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: optimized-models
+          path: output/
+      - name: Quality gates
+        run: python tests/quality_gate.py
+        env:
+          HARDWARE_TARGET: ${{ github.event.inputs.hardware_target }}
+      - name: Generate report
+        run: python pipeline/report.py
+
+  package:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: optimized-models
+          path: output/
+      - name: Create deploy package
+        run: python deploy/package.py
+        env:
+          HARDWARE_TARGET: ${{ github.event.inputs.hardware_target }}
+          MODEL_ID: ${{ github.event.inputs.model_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-package
+          path: deploy/

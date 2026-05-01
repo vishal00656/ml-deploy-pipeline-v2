@@ -1,0 +1,13 @@
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+onnx>=1.14.0
+onnxruntime>=1.16.0
+onnxconverter-common>=1.14.0
+tensorflow>=2.13.0
+tf2onnx>=1.15.0
+numpy>=1.24.0
+Pillow>=10.0.0
+requests>=2.31.0
+pyyaml>=6.0.1
+packaging>=23.0
