@@ -11,12 +11,11 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 def convert_rfdetr():
-    """Convert RF-DETR model to ONNX using rfdetr package"""
+    """Convert RF-DETR model to ONNX using built-in export()"""
     from rfdetr import RFDETRBase, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
     
     print(f"Loading RF-DETR model: {MODEL_ID}")
     
-    # Map model IDs to classes
     rfdetr_models = {
         'rfdetr-nano': RFDETRNano,
         'rfdetr-small': RFDETRSmall,
@@ -31,26 +30,14 @@ def convert_rfdetr():
     print(f"Using model class: {model_class.__name__}")
     
     model = model_class()
-    model.model.eval()  # Get the underlying PyTorch model
-    
-    # RF-DETR uses 560x560 or 640x640
-    dummy_input = torch.randn(1, 3, 560, 560)
     
     ensure_dir('input')
-    torch.onnx.export(
-        model.model,
-        dummy_input,
-        'input/model.onnx',
-        input_names=['pixel_values'],
-        output_names=['logits', 'pred_boxes'],
-        dynamic_axes={
-            'pixel_values': {0: 'batch_size'},
-            'logits': {0: 'batch_size'},
-            'pred_boxes': {0: 'batch_size'}
-        },
-        opset_version=14
-    )
-    print("✅ RF-DETR exported to ONNX (560x560)")
+    model.export(output_dir='input', simplify=True)
+    
+    import shutil
+    shutil.move('input/inference_model.onnx', 'input/model.onnx')
+    
+    print("✅ RF-DETR exported to ONNX via built-in export()")
     return True
 
 def convert_huggingface():
@@ -59,7 +46,6 @@ def convert_huggingface():
     
     print(f"Loading HuggingFace model: {MODEL_ID}")
     
-    # Try object detection first
     try:
         model = AutoModelForObjectDetection.from_pretrained(MODEL_ID)
         processor = AutoImageProcessor.from_pretrained(MODEL_ID)
@@ -94,7 +80,6 @@ def convert_huggingface():
     except Exception as e:
         print(f"Not an object detection model or error: {e}")
     
-    # Try generic model
     try:
         model = AutoModel.from_pretrained(MODEL_ID)
         model.eval()
@@ -174,7 +159,6 @@ def convert_from_url():
 def main():
     ensure_dir('input')
     
-    # Check if it's an RF-DETR model
     if 'rf-detr' in MODEL_ID.lower() or 'rfdetr' in MODEL_ID.lower():
         success = convert_rfdetr()
     elif MODEL_SOURCE == 'huggingface':
@@ -190,7 +174,6 @@ def main():
     if not success:
         sys.exit(1)
     
-    # Validate the ONNX
     model = onnx.load('input/model.onnx')
     onnx.checker.check_model(model)
     print("✅ ONNX validation passed")
