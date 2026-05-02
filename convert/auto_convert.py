@@ -11,7 +11,8 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 def convert_rfdetr():
-    """Convert RF-DETR model to ONNX using built-in export()"""
+    """Convert RF-DETR model to ONNX using built-in export() on CPU"""
+    import torch
     from rfdetr import RFDETRBase, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRLarge
     
     print(f"Loading RF-DETR model: {MODEL_ID}")
@@ -29,17 +30,20 @@ def convert_rfdetr():
     model_class = rfdetr_models.get(MODEL_ID.lower(), RFDETRBase)
     print(f"Using model class: {model_class.__name__}")
     
+    # Force CPU
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    torch.set_default_device('cpu')
+    
     model = model_class()
     
     ensure_dir('input')
-    model.export(output_dir='input', simplify=True)
+    model.export(output_dir='input', simplify=True, device='cpu')
     
     import shutil
     shutil.move('input/inference_model.onnx', 'input/model.onnx')
     
-    print("✅ RF-DETR exported to ONNX via built-in export()")
+    print("✅ RF-DETR exported to ONNX on CPU")
     return True
-
 def convert_huggingface():
     """Convert HuggingFace model to ONNX"""
     from transformers import AutoModel, AutoModelForObjectDetection, AutoImageProcessor
