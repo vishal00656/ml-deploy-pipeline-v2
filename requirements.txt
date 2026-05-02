@@ -1,8 +1,8 @@
 torch>=2.0.0
 torchvision>=0.15.0
 transformers>=4.35.0
-rfdetr[onnxexport]>=1.6.0
 onnx>=1.14.0
+onnxscript>=0.1.0
 onnxruntime>=1.16.0
 onnxconverter-common>=1.14.0
 tensorflow>=2.13.0
