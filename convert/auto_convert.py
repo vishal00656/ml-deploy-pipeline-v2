@@ -10,6 +10,12 @@ MODEL_ID = os.environ.get('MODEL_ID', 'resnet50')
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
+def merge_external_data():
+    """Force ONNX model into single file (no external .data)"""
+    model = onnx.load('input/model.onnx')
+    onnx.save(model, 'input/model.onnx', save_as_external_data=False)
+    print("✅ Merged external data into single file")
+
 def convert_rfdetr():
     """Convert RF-DETR model to ONNX using built-in export() on CPU"""
     import torch
@@ -30,7 +36,6 @@ def convert_rfdetr():
     model_class = rfdetr_models.get(MODEL_ID.lower(), RFDETRBase)
     print(f"Using model class: {model_class.__name__}")
     
-    # Force CPU
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
     torch.set_default_device('cpu')
     
@@ -42,8 +47,10 @@ def convert_rfdetr():
     import shutil
     shutil.move('input/inference_model.onnx', 'input/model.onnx')
     
+    merge_external_data()
     print("✅ RF-DETR exported to ONNX on CPU")
     return True
+
 def convert_huggingface():
     """Convert HuggingFace model to ONNX"""
     from transformers import AutoModel, AutoModelForObjectDetection, AutoImageProcessor
@@ -78,6 +85,7 @@ def convert_huggingface():
             },
             opset_version=14
         )
+        merge_external_data()
         print(f"✅ HF Object Detection model exported: {h}x{w}")
         return True
         
@@ -99,6 +107,7 @@ def convert_huggingface():
             dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}},
             opset_version=14
         )
+        merge_external_data()
         print("✅ HF Generic model exported")
         return True
         
@@ -131,6 +140,7 @@ def convert_torchvision():
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}},
         opset_version=14
     )
+    merge_external_data()
     print("✅ Torchvision model exported")
     return True
 
@@ -155,6 +165,7 @@ def convert_from_url():
     
     if fmt == 'onnx':
         os.rename(temp_path, 'input/model.onnx')
+        merge_external_data()
         return True
     else:
         print(f"❌ URL format '{fmt}' not yet supported for auto-convert")
